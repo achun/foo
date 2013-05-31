@@ -16,8 +16,8 @@ type Fuler interface {
 
 //  RESTful ServeHTTP 结构
 type Ful struct {
-	W http.ResponseWriter
-	R *http.Request
+	W      http.ResponseWriter
+	R      *http.Request
 	Path   string
 	Before func(*Ful) bool //HiJack
 	After  func(*Ful) bool
@@ -25,6 +25,15 @@ type Ful struct {
 	Post   func(*Ful)
 	Put    func(*Ful)
 	Delete func(*Ful)
+}
+
+// 如果有错误，写错误信息，并返回是否有错误
+func (p *Ful) WriteErr(err error) bool {
+	if err != nil {
+		p.W.WriteHeader(http.StatusBadRequest)
+		p.W.Write([]byte(err.Error()))
+	}
+	return err != nil
 }
 
 // RESTful ServeHTTP 分派

@@ -5,6 +5,10 @@ import (
 	"errors"
 )
 
+var EOF = errors.New("XML Eof")
+
+type Tag map[string]string
+
 type XMap struct {
 	Name     string `json:"-"`
 	Attr     []xml.Attr
@@ -13,7 +17,9 @@ type XMap struct {
 	Parent   *XMap `json:"-"`
 }
 
-func MapElement(d *xml.Decoder) *XMap {
+// 对 XML 结构进行样本化
+// 返回:XMap,XML样本图
+func Map(d *xml.Decoder) *XMap {
 	root := XMap{Name: "root"}
 	root.Items = map[string]*XMap{}
 	var (
@@ -48,6 +54,7 @@ func MapElement(d *xml.Decoder) *XMap {
 	}
 	return &root
 }
+
 func next(d *xml.Decoder, deep *int) (cd string, xt *XMap, err error) {
 	t, err := d.RawToken()
 	if err != nil {

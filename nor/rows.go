@@ -3,17 +3,18 @@ package nor
 import (
 	"database/sql"
 	"errors"
-	"io"
 	"reflect"
 	"strconv"
 	"time"
 )
 
+var EOF = errors.New("End of Rows")
+
 type Rowser interface {
 	Err() error
 	Close() error
 	Closed() bool
-	Dst(interface{}) bool
+	Dst(interface{}) Rowser
 	Scan(...interface{}) error
 	Rowi(...interface{}) map[string]interface{}
 	Row(...interface{}) map[string]reflect.Value
@@ -30,7 +31,7 @@ type Rows struct {
 	Cols map[string]int
 }
 
-//有*sql.Rows和其相关的 struct 对象实例创建 norm.Rows 对象实例
+//有*sql.Rows和其相关的 struct 对象实例创建 nor.Rows 对象实例
 func NewRows(rows *sql.Rows) (ret *Rows, err error) {
 	cols, err := rows.Columns()
 	if err != nil {
@@ -68,21 +69,20 @@ func (p *Rows) Close() (err error) {
 
 //绑定目标 struct 对象实例
 //返回值:bool, true 目标对象实例被绑定, false 取消原绑定的目标对象实例
-func (p *Rows) Dst(dst interface{}) (ret bool) {
-	rv := reflect.Indirect(reflect.ValueOf(dst)).Addr().Elem()
-	ret = rv.IsValid() && rv.Kind() == reflect.Struct
+func (p *Rows) Dst(dst interface{}) Rowser {
+	rv := reflect.Indirect(reflect.ValueOf(dst))
+	ret := rv.IsValid() && rv.Kind() == reflect.Struct
 	if ret {
 		p.dst = rv
 	} else {
 		p.dst = reflect.ValueOf(nil)
 	}
-	return
+	return p
 }
 
-//Rows.Scan 至少需要一个参数
 //支持 struct 对象实例作为参数，如果这样用，该 struct 对象实例比须是唯一的参数
 //如果参数违背了参数规则, 将返回错误, 此错误不影响再次 Scan 操作
-//如果没有数据设置 error 为 io.EOF, 并自动关闭
+//如果没有数据设置 error 为 EOF, 并自动关闭
 func (p *Rows) Scan(dest ...interface{}) error {
 	dst, rv, err := p.scan(dest...)
 	if err == nil && rv.IsValid() {
@@ -93,7 +93,7 @@ func (p *Rows) Scan(dest ...interface{}) error {
 
 //以 map[string]interface{} 形式返回一条记录
 //如果遇到错误, 返回 nil, 并自动关闭, 调用 Rows.Err() 查看错误
-//如果没有数据, 返回 nil, 并自动关闭, 调用 Rows.Err() 将返回 io.EOF
+//如果没有数据, 返回 nil, 并自动关闭, 调用 Rows.Err() 将返回 EOF
 func (p *Rows) Rowi(dest ...interface{}) (ret map[string]interface{}) {
 	dst, rv, err := p.scan(dest...)
 	if err != nil || dst == nil {
@@ -114,7 +114,7 @@ func (p *Rows) Rowi(dest ...interface{}) (ret map[string]interface{}) {
 //如果只有一个参数并且是 *struct 类型，以 map[string]reflect.Value 形式返回一条记录
 //否则相当于调用 Rows.Scan
 //如果遇到错误, 返回 nil, 并自动关闭, 调用 Rows.Err() 查看错误
-//如果没有数据, 返回 nil, 并自动关闭, 调用 Rows.Err() 将返回 io.EOF
+//如果没有数据, 返回 nil, 并自动关闭, 调用 Rows.Err() 将返回 EOF
 func (p *Rows) Row(dest ...interface{}) (ret map[string]reflect.Value) {
 	dst, rv, err := p.scan(dest...)
 	if err == nil && dst != nil && rv.IsValid() {
@@ -128,10 +128,10 @@ func (p *Rows) canNext() error {
 		return p.err
 	}
 	if p.closed {
-		p.err = errors.New("norm: Rows are closed")
+		p.err = errors.New("nor: Rows are closed")
 	} else if !p.rows.Next() {
 		p.Close()
-		p.err = io.EOF
+		p.err = EOF
 	}
 	return p.err
 }
@@ -147,21 +147,23 @@ func (p *Rows) errClose() {
 
 func (p *Rows) scan(dest ...interface{}) (dst []interface{}, rv reflect.Value, err error) {
 	if len(dest) == 0 && !p.dst.IsValid() {
-		err = errors.New("Rows.Scan: Expect at least one argument")
+		p.err = errors.New("nor: Rows expect at least one parameter or Dst")
 		return
 	}
-	if p.canNext() != nil {
-		err = p.err
+	err = p.canNext()
+	if err != nil {
 		return
 	}
 	cols := p.cols
 	if len(dest) == 1 {
-		rv = reflect.Indirect(reflect.ValueOf(dest[0])).Addr().Elem()
+		rv = reflect.Indirect(reflect.ValueOf(dest[0]))
 	} else if p.dst.IsValid() {
 		rv = p.dst
 	}
+
 	isStruct := rv.IsValid() && rv.Kind() == reflect.Struct
-	if isStruct {
+
+	if isStruct || len(dest) == 0 {
 		dst = make([]interface{}, len(cols))
 		for i, _ := range cols {
 			var empty interface{}
