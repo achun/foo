@@ -3,29 +3,29 @@ package b64k
 import (
 	"errors"
 	"io"
-	"net"
 )
 
 // B64k
-// TCP 长连接交互数据包格式设计
+// Block Size 最大 65532 字节的数据包装器
+// 例如用于 TCP 长连接交互数据包
 // 2字节数据大小包头+数据
 // 2字节包头,chunk size, Big endian 编码
-//      0 发送方 Close 完结信号,接收方可以主动Close
+//      0 发送方 Close 完结信号
+//        B64k 不主动调用 Close(),会返回 io.EOF
 //      1..65532    本次chunk数据大小
 //      65533       下一个是混入block
 //      65534       心跳信号
 //      65535       block 结束
 type B64k struct {
-	b      [16384]byte //接收缓冲区
-	c      net.Conn
+	rw     io.ReadWriteCloser
 	size   int //chunk 剩余要读取的大小
 	pos    int //保存跨界数据偏移量
 	end    int //保存跨界数据结束位置
 	closed bool
 }
 
-func NewB64k(c net.Conn) *B64k {
-	return &B64k{c: c}
+func NewB64k(rw io.ReadWriteCloser) *B64k {
+	return &B64k{rw: rw}
 }
 
 var (
@@ -36,9 +36,20 @@ var (
 	MIXIN     = []byte{0xFF, 0xFD}
 )
 
-// 解包
-// 返回 0 长度[]byte 表示结束或者有 error
-func (p *B64k) Read() ([]byte, error) {
+// B64k 解包 兼容 io.Reader 的方法
+func (p *B64k) Read(bs []byte) (int, error) {
+	b, err := p.ReadBuf(bs)
+	if err != nil {
+		return len(b), err
+	}
+	return copy(bs, b), err
+}
+
+// B64k 解包
+// 返回:
+//		[]byte nil 表示结束或者有 error
+//		error 错误,注意 io.EOF,EOB,BOM 的特殊含义
+func (p *B64k) ReadBuf(b []byte) ([]byte, error) {
 	var (
 		err     error
 		s, h, n int
@@ -50,7 +61,7 @@ func (p *B64k) Read() ([]byte, error) {
 	for {
 		if p.pos == 0 {
 			s = 0
-			n, err = p.c.Read(p.b[0:])
+			n, err = p.rw.Read(b)
 			if err != nil {
 				return nil, err
 			}
@@ -64,16 +75,16 @@ func (p *B64k) Read() ([]byte, error) {
 		if p.size == 0 {
 			if ish {
 				ish = false
-				p.size = h + int(p.b[s])
+				p.size = h + int(b[s])
 				s++
 				h = 0
 			} else if n-s == 1 {
-				h = int(p.b[s] << 8)
+				h = int(b[s] << 8)
 				ish = true
 				s++
 				continue
 			} else {
-				p.size = int(p.b[s]<<8) + int(p.b[s+1])
+				p.size = int(b[s]<<8) + int(b[s+1])
 				s += 2
 			}
 			if n == s {
@@ -82,12 +93,11 @@ func (p *B64k) Read() ([]byte, error) {
 		}
 		switch p.size {
 		case 0:
-			p.Close()
 			return nil, io.EOF
 		case 65535:
 			return nil, EOB
 		case 65534:
-			_, err = p.c.Write(HEARTBEAT)
+			_, err = p.rw.Write(HEARTBEAT)
 			if err != nil {
 				return nil, err
 			}
@@ -105,7 +115,7 @@ func (p *B64k) Read() ([]byte, error) {
 		} else {
 			p.pos = 0
 		}
-		return p.b[s:n], nil
+		return b[s:n], nil
 	}
 }
 func (p *B64k) Write(b []byte, eob bool) (int, error) {
@@ -114,7 +124,7 @@ func (p *B64k) Write(b []byte, eob bool) (int, error) {
 		err                error
 	)
 	if p.closed {
-		return -1, io.EOF
+		return 0, io.EOF
 	}
 	max := len(b)
 	for {
@@ -154,9 +164,9 @@ func (p *B64k) Write(b []byte, eob bool) (int, error) {
 
 func (p *B64k) write(b []byte) (int, error) {
 	if p.closed {
-		return -1, io.EOF
+		return 0, io.EOF
 	}
-	return p.c.Write(b)
+	return p.rw.Write(b)
 }
 
 func (p *B64k) HeartBeat() (int, error) {
@@ -169,10 +179,10 @@ func (p *B64k) BOM() (int, error) {
 	return p.write(MIXIN)
 }
 
-func (p *B64k) Close() {
+func (p *B64k) Close() error {
 	if p.closed {
-		return
+		return nil
 	}
-	p.c.Close()
 	p.closed = true
+	return p.rw.Close()
 }
