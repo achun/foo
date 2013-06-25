@@ -9,10 +9,6 @@ import (
 )
 
 // Ful 是一个简单的 http.Handler 实现
-<<<<<<< HEAD
-=======
-// Ful 依据 Request.Method 调用对应的函数
->>>>>>> origin/master
 // 示例: 直接使用而不是用struct再次包装
 // 		http.Handle(pattern, &Ful{
 // 			Get: func(fu *Ful) {
@@ -108,7 +104,6 @@ func (p *Ful) SetCookie(name string, value string, maxAge int) *Ful {
 	return p
 }
 
-<<<<<<< HEAD
 // Fu 需要提供一个生成器生成新的 Fu 对象
 // 示例: 因为闭包的存在，Get 之类的函数不再需要定义参数
 //		http.Handle(pattern,FuGen(func() *Fu{
@@ -116,30 +111,14 @@ func (p *Ful) SetCookie(name string, value string, maxAge int) *Ful {
 //			fu = &Fu{
 //				Get: func() {
 //					something(fu)
-=======
-// Fu 与 Ful 类似，区别在使用上，需要提供一个生成器或者使用闭包的形式
-// 示例: 因为闭包的存在，Get 之类的函数不再需要定义参数
-// 		http.Handle(pattern,FuGen(func() *Fu{
-//			var fu *Fu
-//			fu = &Fu{
-// 				Get: func() {
-//	 				something(fu)
->>>>>>> origin/master
 //				},
 //				After: func() {
 //					something(fu)
 //				},
-<<<<<<< HEAD
 //			}
 //			return fu
 //		}))
 
-=======
-// 			}
-//			return fu
-// 		}))
-// 看上去确实有些古怪，此方式结合了闭包和生成器
->>>>>>> origin/master
 type Fu struct {
 	gen    func() *Fu
 	W      http.ResponseWriter
@@ -152,11 +131,7 @@ type Fu struct {
 	Delete func()
 }
 
-<<<<<<< HEAD
 // 由生成 type Fu 的函数 gen,构建 Fu 实例
-=======
-// 由生成 type Fu 的函数 gen,构建 http.Handel
->>>>>>> origin/master
 func FuGen(gen func() *Fu) *Fu {
 	return &Fu{gen: gen}
 }
